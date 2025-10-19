@@ -1,15 +1,19 @@
 #include "compiler.hpp"
+#include "utils.hpp"
 #include <iostream>
 #include <cstdio>
+#include <algorithm>
 using namespace std;
 
 const int MAXB = 4096;
 
-map<string,Instr> instruction_table;
-map<string,Symbol> symbol_table;
 map<string,int> directive_table;
-map<string,Macro> mnt; 
-vector<string> mdt;         
+map<string,Instr> instruction_table;
+
+map<string,Macro> MNT; 
+vector<string> MDT;         
+
+map<string,Symbol> symbol_table;
 
 void init() {
     instruction_table = { 
@@ -22,55 +26,10 @@ void init() {
     };
 }
 
-string normalize(const string & line) {
-    string ret;
-    for (char c : line) {
-        if (c == '+' || c == '-' || c == ',') {
-            if (!ret.empty() && ret.back() != ' ') ret += ' ';
-            ret += c;
-            ret += ' ';
-        } else if (c == ';') {
-            break;
-        } else {
-            ret += c;
-        }
-    }
-    while (!ret.empty() && isspace(ret.back())) ret.pop_back();
-    return ret;
-};
-
-vector<string> tokenize(const string & line) {
-    vector<string> ret;
-    string token;
-    for (char c : line) {
-        if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
-            if (!token.empty()) { ret.push_back(token); token = ""; }
-        } else {
-            token += c;
-        }
-    }
-    if (!token.empty()) ret.push_back(token);
-    return ret;
-};
-
-string to_upper(string s) {
-    for (char &c : s) if (c >= 'a' && c <= 'z') c = c - 'a' + 'A';
-    return s;
-};
-
-// single pass pre proc
-void pre_proc(const string & in, const string & out) {
-    FILE* in_file = fopen(in.c_str(), "r");
-    if (!in_file) {
-        throw runtime_error("erro: arquivo de input no preproc: " + in);
-    }
-    FILE* out_file = fopen(out.c_str(), "w");
-    if (!out_file) {
-        fclose(in_file);
-        throw runtime_error("erro: arquivo de saida no preproc: " + out);
-    }
-
-    auto join_tokens = [&](const vector<string> & tokens) -> string {
+void pre_proc(string & in, string & out) {
+    FILE* in_file = f_ini(in, "r");
+    FILE* out_file = f_ini(out, "w");
+    auto join_tokens = [&](vector<string> & tokens) -> string {
         string ret;
         if (!tokens.empty()) {
             ret = tokens[0];
@@ -80,117 +39,101 @@ void pre_proc(const string & in, const string & out) {
         }
         return ret;
     };
-
+    auto replace = [&](string & s, string & a, string & b) {
+        size_t it = 0;
+        while((it = s.find(a, it)) != string::npos) {
+            s.replace(it, (int)a.size(), b);
+            it += (int)b.size(); 
+        }
+    };
     char buffer[MAXB];
-    bool macro_def = false;
-    string cur_label = "", cur_macro_name;
-    map<string,vector<string>> macro_args;
+    vector<string> lines;
+    while (fgets(buffer, sizeof(buffer), in_file)) lines.push_back(string(buffer));
+    reverse(lines.begin(), lines.end());
 
-    while (fgets(buffer, sizeof(buffer), in_file)) {
-        string line(buffer);
-        while (!line.empty() && (line.back() == '\n' || line.back() == '\r')) line.pop_back();
-        
+    bool macro_def = false;
+    
+    while (!lines.empty()) {
+        string line = lines.back();
+        lines.pop_back();
         vector<string> tokens = tokenize(normalize(line));
         if (tokens.empty()) continue;
-
+        // se for só um rótulo a linha inteira, insere ele na próx linha 
+        // ex:  ROTULO:
+        //      INPUT N
+        if (tokens.size() == 1 && tokens[0].back() == ':') {
+            lines.back() = tokens[0] + " " + lines.back();
+            continue; 
+        }
+        // caso em que a linha atual define uma macro
+        // ex: "SEILA: MACRO &X"
+        bool ini_macro = (tokens.size() > 1 && to_upper(tokens[1]) == "MACRO");
+        if (ini_macro) {
+            macro_def = true;
+            string name = to_upper(tokens[0]); name.pop_back();     
+            Macro macro;
+            macro.mdt_pos = MDT.size(); // index inicial na MDT
+            for (int i = 2; i < tokens.size(); i++) {
+                macro.params.push_back(tokens[i]); //  &ARG1 &ARG2 salvos  
+            }
+            MNT[name] = macro;
+            // MNT é sempre nesse formato
+            // "SLA_MACRO" -> { mdt_pos: 0, params: ["&X"] }
+            continue; 
+        }
+        // caso de estar dentro do corpo de uma macro
+        // só preenche a MDT com a linha crua ou encerra macro
         if (macro_def) {
             if (to_upper(tokens[0]) == "ENDMACRO") {
                 macro_def = false;
-                mdt.push_back("ENDMACRO");
-            } else {
-                string mdt_line = line;
-                auto it = macro_args.find(cur_macro_name);
-                if (it != macro_args.end()) {
-                    auto &args = it->second;
-                    for (int i = 0; i < (int)args.size(); i++) {
-                        auto &cur_arg = args[i];
-                        string pl = "#" + to_string(i + 1);
-                        size_t pos = mdt_line.find(cur_arg);
-                        while (pos != string::npos) {
-                            mdt_line.replace(pos, cur_arg.length(), pl);
-                            pos = mdt_line.find(cur_arg, pos + pl.length());
-                        }
-                    }
-                }
-                mdt.push_back(mdt_line);
-            }
+                MDT.push_back("ENDMACRO");
+            } else MDT.push_back(line); 
             continue;
         }
-
-        if (!cur_label.empty()) {
-            tokens.insert(tokens.begin(), cur_label.substr(0, cur_label.find(' ')));
-            cur_label = "";
-        }
-        if (tokens.size() == 1 && !tokens[0].empty() && tokens[0].back() == ':') {
-            cur_label = tokens[0] + " ";
-            continue;
-        }
-
-        if (tokens.size() > 1 && to_upper(tokens[1]) == "MACRO") {
-            macro_def = true;
-            string macro_name = to_upper(tokens[0]);
-            macro_name.pop_back();
-            cur_macro_name = macro_name;
-            
-            vector<string> cur_args;
-            for (int i = 2; i < (int)tokens.size(); i++) {
-                if (tokens[i] != ",") cur_args.push_back(tokens[i]);
-            }
-            mnt[macro_name] = { (int)cur_args.size(), (int)mdt.size() };
-            macro_args[macro_name] = cur_args;
-            continue; 
-        }
-
-        string wanted_tk, label_part;
-        if (!tokens.empty() && tokens[0].back() == ':') {
-            label_part = tokens[0];
-            if (tokens.size() > 1) wanted_tk = to_upper(tokens[1]);
+        
+        // caso seja chamada de macro ou linha normal
+        string label = "", aux = "";
+        if (tokens[0].back() == ':') {
+            // se for linha com rótulo
+            // ex: ["ROTULO:", "SLA_MACRO", "X1"]
+            label = tokens[0];
+            aux = tokens.size() ? to_upper(tokens[1]) : aux;
         } else {
-            if (!tokens.empty()) wanted_tk = to_upper(tokens[0]);
+            // se for linha sem rótulo
+            // ex: ["SLA_MACRO", "X1"]
+            aux = to_upper(tokens[0]);
         }
-
-        if (!wanted_tk.empty() && mnt.count(wanted_tk)) {
-            Macro info = mnt[wanted_tk];
-            vector<string> call_args;
-            int start_pos = (!label_part.empty()) ? 2 : 1;
-            string cur_arg;
-
-            for (int i = start_pos; i < (int)tokens.size(); i++) {
-                if (tokens[i] == ",") {
-                    if (!cur_arg.empty()) call_args.push_back(cur_arg);
-                    cur_arg = ""; 
-                } else {
-                    if (!cur_arg.empty()) cur_arg += " "; 
-                    cur_arg += tokens[i];
-                }
+        // agora caso aux seja de fato uma chamada de macro
+        // tem que expandir
+        if (MNT.count(aux)) {
+            Macro macro = MNT[aux];
+            vector<string> params = macro.params, args, remap;
+            // idx é onde começam os argumentos, pode variar dependendo dos casos
+            // com rótulo na linha ou sem
+            int idx = (label != "") ? 2 : 1; 
+            for (int i = idx; i < (int)tokens.size(); i++) {
+                args.push_back(tokens[i]);
             }
-            if (!cur_arg.empty()) call_args.push_back(cur_arg);
-            
-            bool ini_exp = true;
-            for (int i = info.mdt_pos; i < (int)mdt.size(); i++) {
-                if (to_upper(mdt[i]) == "ENDMACRO") break;
-                string expanded = mdt[i];
-                for (int j = 0; j < (int)call_args.size(); j++) {
-                    string pl = "#" + to_string(j + 1);
-                    size_t pos = expanded.find(pl);
-                    while (pos != string::npos) {
-                        expanded.replace(pos, pl.length(), call_args[j]);
-                        pos = expanded.find(pl, pos + call_args[j].length());
+            // aqui é a parte da expansão, e o remap é só uma mini stack
+            // pra guardar as linhas expandidas temporariamente
+            // depois as partes que foram expandidas voltam pro vetor lines (sem isso não funciona macro dentro de macro)
+            for (int i = macro.mdt_pos; i < (int)MDT.size(); i++) {
+                if (to_upper(MDT[i]) == "ENDMACRO") break;
+                string exp = MDT[i]; 
+                // os parâmetros "&ARGs" são trocados pelos argumentos "Ns"
+                for (int j = 0; j < (int)args.size(); j++) {
+                    if (j < (int)params.size()) {
+                        replace(exp, params[j], args[j]);
                     }
                 }
-                string clean_line = join_tokens(tokenize(normalize(expanded)));
-                if (ini_exp && !label_part.empty()) {
-                    fprintf(out_file, "%s %s\n", label_part.c_str(), clean_line.c_str());
-                    ini_exp = false;
-                } else {
-                    fprintf(out_file, "%s\n", clean_line.c_str());
-                }
+                // se tiver rótulo, coloca ele só na primeira linha da expansão 
+                if (i == macro.mdt_pos && label != "") exp = label + " " + exp;
+                remap.push_back(exp);
             }
-        } else {
-            fprintf(out_file, "%s\n", join_tokens(tokens).c_str());
-        }
-    }
-    fclose(in_file);
+            while(remap.size()) lines.push_back(remap.back()), remap.pop_back();
+        } else fprintf(out_file, "%s\n", join_tokens(tokens).c_str());
+    } 
+    fclose(in_file); 
     fclose(out_file);
 }
 
