@@ -47,3 +47,9 @@ string to_upper(string s) {
     for (char &c : s) if (c >= 'a' && c <= 'z') c = c - 'a' + 'A';
     return s;
 };
+
+bool is_number(string &s){
+    for (char &c: s) 
+        if (!isdigit(c)) return false;
+    return true;
+}

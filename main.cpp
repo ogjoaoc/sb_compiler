@@ -147,7 +147,99 @@ void pre_proc(string & in, string & out) {
 }
 
 
-void single_pass_assembly(const string & in, const string & out_o1, const string & out_o2) {
+void single_pass_assembly(string & in, string & out_o1, string & out_o2) {
+    FILE* in_file = f_ini(in, "r");
+    FILE* out_file1 = f_ini(out_o1, "w");
+    FILE* out_file2 = f_ini(out_o2, "w");
+
+    char buffer[MAXB];
+    vector<string> lines;
+    while (fgets(buffer, sizeof(buffer), in_file)) lines.push_back(string(buffer));
+
+    int counter = 0;
+
+    vector<int> code;
+    vector<int> code_pending_list;
+
+    for (string line: lines){
+        auto tokens = tokenize(line);
+        if (tokens.empty()) continue;
+        if (!tokens.empty() && tokens[0].back() == ':'){
+            // é um simbolo
+            string simbolo = tokens[0];
+            simbolo.pop_back();
+            symbol_table[simbolo].val = code.size();
+            symbol_table[simbolo].def = true;
+            
+            int last_seen = symbol_table[simbolo].pending;
+
+            // faz a substituição dos simbolos que estão para trás
+            while (last_seen != -1){
+                int aux = code[last_seen];
+                code[last_seen] = code.size();
+                last_seen = aux;
+            }
+            continue;
+        } 
+
+        // Função para tratar simbolos
+        auto process_tokens = [&](int num_tokens) {
+            for (int i = 1; i <= num_tokens; i++) {
+                if (is_number(tokens[i])) {
+                    code.push_back(stoi(tokens[i]));
+                } else {
+                    if (symbol_table[tokens[i]].def) {
+                        code.push_back(symbol_table[tokens[i]].val);
+                    } else {
+                        code.push_back(symbol_table[tokens[i]].pending);
+                        symbol_table[tokens[i]].pending = code.size() - 1;
+                    }
+                }
+            }
+        };
+
+        // Checa se é uma diretiva, se não for, então é uma instrução
+        if (tokens[0] == "SPACE"){
+            if (tokens.size() > 1) process_tokens(1);
+            else code.push_back(0);
+        } else if (tokens[0] == "CONST"){
+            if (tokens.size() > 1) process_tokens(1);
+            else code.push_back(0);
+        } else if (instruction_table.count(tokens[0])) {
+            Instr instruction = instruction_table[tokens[0]];
+
+            code.push_back(instruction.opcode);
+            if (instruction.operands) {
+                process_tokens(instruction.operands);
+            }
+        }
+
+        for (int i=code_pending_list.size(); i<code.size(); i++){
+            code_pending_list.push_back(code[i]);
+        }
+
+        // Debug para analizar a saída
+        cout << line;
+        for (int i=tokens.size(); i > 0; i--){
+            cout << code[code.size()-i] << " ";
+        } cout << endl;
+    }
+
+    for (int i = 0; i < code_pending_list.size(); i++){
+        fprintf(out_file1, "%d", code_pending_list[i]);
+        if (i < code_pending_list.size() - 1) fprintf(out_file1, " ");
+    }
+    fprintf(out_file1, "\n");
+
+    for (int i = 0; i < code.size(); i++){
+        fprintf(out_file2, "%d", code[i]);
+        if (i < code.size() - 1) fprintf(out_file2, " ");
+    }
+    fprintf(out_file2, "\n");
+    
+    fclose(in_file); 
+    fclose(out_file1);
+    fclose(out_file2);
 }
 
 
@@ -166,7 +258,7 @@ int main(int argc, char *argv[]) {
     try {
         pre_proc(in, pre);
         cout << "arquivo .pre gerado...\n";
-        // single_pass_assembly(pre, o1, o2);
+        single_pass_assembly(pre, o1, o2);
     } catch (const exception & erro) {
         cerr << "erro: " << erro.what() << '\n';
         return 1;

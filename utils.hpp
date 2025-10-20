@@ -10,4 +10,5 @@ FILE* f_ini(string & F, const char * m);
 string normalize(string & line);
 vector<string> tokenize(const string & line);
 string to_upper(string s);
+bool is_number(string &s);
 #endif 

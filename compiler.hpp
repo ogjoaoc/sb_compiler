@@ -6,12 +6,12 @@
 using namespace std;
 
 struct Instr {
-    int opcode, sz;
-    int operands;
+    int opcode, lengh, operands;
 };
 struct Symbol {
-    int val, pending_list_head; 
+    int val, pending; 
     bool def;
+    Symbol() : val(0), pending(-1), def(false) {}
 };
 struct Macro {
     int mdt_pos;
