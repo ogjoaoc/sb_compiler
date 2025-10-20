@@ -1,0 +1,9 @@
+# Preprocessed files
+*.pre
+
+# Object output files
+*.o1
+*.o2
+
+# Executable
+compilador
