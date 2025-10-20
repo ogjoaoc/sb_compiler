@@ -61,10 +61,10 @@ void pre_proc(string & in, string & out) {
         // se for só um rótulo a linha inteira, insere ele na próx linha 
         // ex:  ROTULO:
         //      INPUT N
-        if (tokens.size() == 1 && tokens[0].back() == ':') {
-            lines.back() = tokens[0] + " " + lines.back();
-            continue; 
-        }
+        // if (tokens.size() == 1 && tokens[0].back() == ':') {
+        //     lines.back() = tokens[0] + " " + lines.back();
+        //     continue; 
+        // }
         // caso em que a linha atual define uma macro
         // ex: "SEILA: MACRO &X"
         bool ini_macro = (tokens.size() > 1 && to_upper(tokens[1]) == "MACRO");
@@ -93,12 +93,12 @@ void pre_proc(string & in, string & out) {
         
         // caso seja chamada de macro ou linha normal
         string label = "", aux = "";
-        if (tokens[0].back() == ':') {
+        if (!tokens.empty() && tokens[0].back() == ':') {
             // se for linha com rótulo
             // ex: ["ROTULO:", "SLA_MACRO", "X1"]
             label = tokens[0];
-            aux = tokens.size() ? to_upper(tokens[1]) : aux;
-        } else {
+            aux = (tokens.size() > 1) ? to_upper(tokens[1]) : aux;
+        } else if (!tokens.empty()) {
             // se for linha sem rótulo
             // ex: ["SLA_MACRO", "X1"]
             aux = to_upper(tokens[0]);
@@ -131,7 +131,16 @@ void pre_proc(string & in, string & out) {
                 remap.push_back(exp);
             }
             while(remap.size()) lines.push_back(remap.back()), remap.pop_back();
-        } else fprintf(out_file, "%s\n", join_tokens(tokens).c_str());
+        } else {
+            // Se a linha tiver um rótulo printa ele separado em uma linha
+            if (!tokens.empty() && tokens[0].back() == ':' && tokens.size() > 1) {
+                fprintf(out_file, "%s\n", tokens[0].c_str());
+                vector<string> rest_tokens(tokens.begin() + 1, tokens.end());
+                fprintf(out_file, "%s\n", join_tokens(rest_tokens).c_str());
+            } else if (!tokens.empty()) {
+                fprintf(out_file, "%s\n", join_tokens(tokens).c_str());
+            }
+        }
     } 
     fclose(in_file); 
     fclose(out_file);
