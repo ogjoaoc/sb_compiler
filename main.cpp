@@ -15,6 +15,18 @@ vector<string> MDT;
 
 map<string,Symbol> symbol_table;
 
+struct Error {
+    int line;
+    string type;
+    string message;
+};
+vector<Error> error_list;
+
+void add_error(int line, string type, string message) {
+    error_list.push_back({line, type, message});
+}
+
+
 void init() {
     instruction_table = { 
         {"ADD",    {1, 2, 1}},   {"SUB",    {2, 2, 1}},  {"MULT",   {3, 2, 1}},   {"DIV",    {4, 2, 1}},  {"JMP",    {5, 2, 1}},
@@ -161,69 +173,136 @@ void single_pass_assembly(string & in, string & out_o1, string & out_o2) {
     vector<int> code;
     vector<int> code_pending_list;
 
-    for (string line: lines){
-        auto tokens = tokenize(line);
-        if (tokens.empty()) continue;
-        if (!tokens.empty() && tokens[0].back() == ':'){
-            // é um simbolo
-            string simbolo = tokens[0];
-            simbolo.pop_back();
-            symbol_table[simbolo].val = code.size();
-            symbol_table[simbolo].def = true;
-            
-            int last_seen = symbol_table[simbolo].pending;
+    for (int line_number = 0; line_number < (int)lines.size(); line_number++){
+    string line = lines[line_number];
+    auto tokens = tokenize(line);
 
-            // faz a substituição dos simbolos que estão para trás
-            while (last_seen != -1){
-                int aux = code[last_seen];
-                code[last_seen] = code.size();
-                last_seen = aux;
+    if (tokens.empty()) continue;
+
+    // ---------------------------------------------------------
+    // Verificação léxica de rótulos (nome e posição)
+    // ---------------------------------------------------------
+    int label_count = 0;
+    for (string &t : tokens) if (t.back() == ':') label_count++;
+
+    // Se houver mais de um rótulo na mesma linha → erro sintático
+    if (label_count > 1) {
+        add_error(line_number+1, "SINTÁTICO", "Dois rótulos na mesma linha.");
+        continue; // ignora essa linha
+    }
+
+    // Se o primeiro token é um rótulo
+    if (tokens[0].back() == ':') {
+        string simbolo = tokens[0];
+        simbolo.pop_back(); // remove o ':'
+
+        // Verifica se rótulo começa com número → erro léxico
+        if (isdigit(simbolo[0])) {
+            add_error(line_number+1, "LÉXICO", "Rótulo não pode começar com número: " + simbolo);
+        }
+
+        // Verifica se o rótulo contém caractere inválido → erro léxico
+        for (char c : simbolo) {
+            if (!(isalnum(c) || c == '_')) {
+                add_error(line_number+1, "LÉXICO", "Rótulo contém caractere inválido: " + simbolo);
+                break;
             }
-            continue;
-        } 
+        }
 
-        // Função para tratar simbolos
-        auto process_tokens = [&](int num_tokens) {
-            for (int i = 1; i <= num_tokens; i++) {
-                if (is_number(tokens[i])) {
-                    code.push_back(stoi(tokens[i]));
+        // Verifica se o rótulo já foi declarado antes → erro semântico
+        if (symbol_table[simbolo].def) {
+            add_error(line_number+1, "SEMÂNTICO", "Rótulo declarado duas vezes: " + simbolo);
+        }
+
+        // Marca a posição onde ele aparece
+        symbol_table[simbolo].val = code.size();
+        symbol_table[simbolo].def = true;
+
+        // Resolve pendências anteriores desse símbolo
+        int last_seen = symbol_table[simbolo].pending;
+        while (last_seen != -1) {
+            int temp = code[last_seen];
+            code[last_seen] = code.size();
+            last_seen = temp;
+        }
+
+        // passa para próxima linha porque só havia rótulo
+        if (tokens.size() == 1) continue;
+
+        // remove o rótulo do vetor para analisar a instrução normalmente
+        tokens.erase(tokens.begin());
+    }
+
+
+    // ---------------------------------------------------------
+    // Verificação sintática: instrução inexistente
+    // ---------------------------------------------------------
+    string opcode = tokens[0];
+    if (!instruction_table.count(opcode) && opcode != "SPACE" && opcode != "CONST") {
+        add_error(line_number+1, "SINTÁTICO", "Instrução inexistente: " + opcode);
+        continue;
+    }
+
+
+    // ---------------------------------------------------------
+    // Diretivas (SPACE e CONST)
+    // ---------------------------------------------------------
+    if (opcode == "SPACE") {
+        if (tokens.size() > 2) {
+            add_error(line_number+1, "SINTÁTICO", "SPACE aceita no máximo 1 argumento.");
+        }
+        code.push_back((tokens.size() == 2 && is_number(tokens[1])) ? stoi(tokens[1]) : 0);
+    }
+    else if (opcode == "CONST") {
+        if (tokens.size() != 2 || !is_number(tokens[1])) {
+            add_error(line_number+1, "SINTÁTICO", "CONST deve receber um valor numérico.");
+        }
+        code.push_back(stoi(tokens[1]));
+    }
+
+    // ---------------------------------------------------------
+    // Instrução comum → verificar número de operandos
+    // ---------------------------------------------------------
+    else if (instruction_table.count(opcode)) {
+        Instr instruction = instruction_table[opcode];
+
+        // Verifica número de operandos
+        if (tokens.size() - 1 != instruction.operands) {
+            add_error(line_number+1, "SINTÁTICO",
+                      "Número incorreto de operandos para " + opcode);
+            continue;
+        }
+
+        code.push_back(instruction.opcode);
+
+        // Resolve operandos
+        for (int i = 1; i < tokens.size(); i++) {
+            string operand = tokens[i];
+
+            // Se for número, só empurra
+            if (is_number(operand)) {
+                code.push_back(stoi(operand));
+            } 
+            // Se for símbolo
+            else {
+                // Se ainda não declarado → deixa pendente e registra erro semântico para possível futura correção
+                if (!symbol_table[operand].def) {
+                    add_error(line_number+1, "SEMÂNTICO", "Rótulo não declarado: " + operand);
+                    code.push_back(symbol_table[operand].pending);
+                    symbol_table[operand].pending = code.size() - 1;
                 } else {
-                    if (symbol_table[tokens[i]].def) {
-                        code.push_back(symbol_table[tokens[i]].val);
-                    } else {
-                        code.push_back(symbol_table[tokens[i]].pending);
-                        symbol_table[tokens[i]].pending = code.size() - 1;
-                    }
+                    code.push_back(symbol_table[operand].val);
                 }
             }
-        };
-
-        // Checa se é uma diretiva, se não for, então é uma instrução
-        if (tokens[0] == "SPACE"){
-            if (tokens.size() > 1) process_tokens(1);
-            else code.push_back(0);
-        } else if (tokens[0] == "CONST"){
-            if (tokens.size() > 1) process_tokens(1);
-            else code.push_back(0);
-        } else if (instruction_table.count(tokens[0])) {
-            Instr instruction = instruction_table[tokens[0]];
-
-            code.push_back(instruction.opcode);
-            if (instruction.operands) {
-                process_tokens(instruction.operands);
-            }
         }
-
-        for (int i=code_pending_list.size(); i<code.size(); i++){
-            code_pending_list.push_back(code[i]);
-        }
-
-        // Debug para analizar a saída
-        cout << line;
-        for (int i=tokens.size(); i > 0; i--){
-            cout << code[code.size()-i] << " ";
-        } cout << endl;
     }
+
+    // Atualiza lista de pendências
+    for (int i = code_pending_list.size(); i < code.size(); i++){
+        code_pending_list.push_back(code[i]);
+    }
+}
+
 
     for (int i = 0; i < code_pending_list.size(); i++){
         fprintf(out_file1, "%d", code_pending_list[i]);
@@ -253,12 +332,27 @@ int main(int argc, char *argv[]) {
     string pre = arq + ".pre";
     string o1 = arq + ".o1";
     string o2 = arq + ".o2";
+    string err = arq + ".err";
+
     cout << "teste para compilação do arquivo: " << in << '\n';
     init();
     try {
         pre_proc(in, pre);
         cout << "arquivo .pre gerado...\n";
         single_pass_assembly(pre, o1, o2);
+         if (!error_list.empty()) {
+            cout << "\nErros encontrados:\n";
+            FILE *err_file = fopen(err.c_str(), "w");
+            for (auto &e : error_list) {
+                cout << "Linha " << e.line << " - " << e.type << ": " << e.message << endl;
+                fprintf(err_file, "Linha %d - %s: %s\n", e.line, e.type.c_str(), e.message.c_str());
+            }
+            fclose(err_file);
+            cout << "\nArquivo de erros gerado: " << err << endl;
+        } else {
+            cout << "\nCompilação concluída sem erros.\n";
+        }
+
     } catch (const exception & erro) {
         cerr << "erro: " << erro.what() << '\n';
         return 1;
