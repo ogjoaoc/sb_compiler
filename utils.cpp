@@ -53,3 +53,16 @@ bool is_number(string &s){
         if (!isdigit(c)) return false;
     return true;
 }
+
+bool is_valid_integer(string &s) {
+    if (s.empty()) return false;
+    int start = 0;
+    if (s[0] == '-' || s[0] == '+') {
+        if (s.size() == 1) return false; // só o sinal não é válido
+        start = 1;
+    }
+    for (int i = start; i < s.size(); i++) {
+        if (!isdigit(s[i])) return false;
+    }
+    return true;
+}

@@ -2,6 +2,7 @@
     "files.associations": {
         "stdexcept": "cpp",
         "string": "cpp",
-        "vector": "cpp"
+        "vector": "cpp",
+        "ostream": "cpp"
     }
 }
