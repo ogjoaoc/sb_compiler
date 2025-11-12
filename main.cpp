@@ -71,14 +71,8 @@ void pre_proc(string & in, string & out) {
         vector<string> tokens = tokenize(normalize(line));
         if (tokens.empty()) continue;
         // se for só um rótulo a linha inteira, insere ele na próx linha 
-        // ex:  ROTULO:
-        //      INPUT N
-        // if (tokens.size() == 1 && tokens[0].back() == ':') {
-        //     lines.back() = tokens[0] + " " + lines.back();
-        //     continue; 
-        // }
         // caso em que a linha atual define uma macro
-        // ex: "SEILA: MACRO &X"
+        
         bool ini_macro = (tokens.size() > 1 && to_upper(tokens[1]) == "MACRO");
         if (ini_macro) {
             macro_def = true;
@@ -90,10 +84,9 @@ void pre_proc(string & in, string & out) {
             }
             MNT[name] = macro;
             // MNT é sempre nesse formato
-            // "SLA_MACRO" -> { mdt_pos: 0, params: ["&X"] }
             continue; 
         }
-        // caso de estar dentro do corpo de uma macro
+        // caso dentro do corpo de uma macro
         // só preenche a MDT com a linha crua ou encerra macro
         if (macro_def) {
             if (to_upper(tokens[0]) == "ENDMACRO") {
@@ -107,12 +100,10 @@ void pre_proc(string & in, string & out) {
         string label = "", aux = "";
         if (!tokens.empty() && tokens[0].back() == ':') {
             // se for linha com rótulo
-            // ex: ["ROTULO:", "SLA_MACRO", "X1"]
             label = tokens[0];
             aux = (tokens.size() > 1) ? to_upper(tokens[1]) : aux;
         } else if (!tokens.empty()) {
             // se for linha sem rótulo
-            // ex: ["SLA_MACRO", "X1"]
             aux = to_upper(tokens[0]);
         }
         // agora caso aux seja de fato uma chamada de macro
@@ -180,16 +171,15 @@ void single_pass_assembly(string & in, string & out_o1, string & out_o2) {
 
         if (tokens.empty()) continue;
 
-        // ---------------------------------------------------------
         // Verificação léxica de rótulos (nome e posição)
-        // ---------------------------------------------------------
+
         int label_count = 0;
         for (string &t : tokens) if (t.back() == ':') label_count++;
 
-        // Se houver mais de um rótulo na mesma linha → erro sintático
+        // Se houver mais de um rótulo na mesma linha (erro sintático)
         if (label_count > 1) {
             add_error(line_number+1, "SINTÁTICO", "Dois rótulos na mesma linha.");
-            continue; // ignora essa linha
+            continue; 
         }
 
         // Se o primeiro token é um rótulo
@@ -197,12 +187,12 @@ void single_pass_assembly(string & in, string & out_o1, string & out_o2) {
             string simbolo = tokens[0];
             simbolo.pop_back(); // remove o ':'
 
-            // Verifica se rótulo começa com número → erro léxico
+            // Verifica se rótulo começa com número (erro léxico)
             if (isdigit(simbolo[0])) {
                 add_error(line_number+1, "LÉXICO", "Rótulo não pode começar com número: " + simbolo);
             }
 
-            // Verifica se o rótulo contém caractere inválido → erro léxico
+            // Verifica se o rótulo contém caractere inválido (erro léxico)
             for (char c : simbolo) {
                 if (!(isalnum(c) || c == '_')) {
                     add_error(line_number+1, "LÉXICO", "Rótulo contém caractere inválido: " + simbolo);
@@ -210,7 +200,7 @@ void single_pass_assembly(string & in, string & out_o1, string & out_o2) {
                 }
             }
 
-            // Verifica se o rótulo já foi declarado antes → erro semântico
+            // Verifica se o rótulo já foi declarado antes (erro semântico)
             if (symbol_table[simbolo].def) {
                 add_error(line_number+1, "SEMÂNTICO", "Rótulo declarado duas vezes: " + simbolo);
             }
@@ -234,20 +224,14 @@ void single_pass_assembly(string & in, string & out_o1, string & out_o2) {
             tokens.erase(tokens.begin());
         }
 
-
-        // ---------------------------------------------------------
         // Verificação sintática: instrução inexistente
-        // ---------------------------------------------------------
         string opcode = tokens[0];
         if (!instruction_table.count(opcode) && opcode != "SPACE" && opcode != "CONST") {
             add_error(line_number+1, "SINTÁTICO", "Instrução inexistente: " + opcode);
             continue;
         }
 
-
-        // ---------------------------------------------------------
         // Diretivas (SPACE e CONST)
-        // ---------------------------------------------------------
         if (opcode == "SPACE") {
             int space_size = 1; // valor padrão
             
@@ -270,7 +254,7 @@ void single_pass_assembly(string & in, string & out_o1, string & out_o2) {
                 }
             }
             
-            // Reserva space_size posições na memória (todas inicializadas com 0)
+            
             for (int i = 0; i < space_size; i++) {
                 code.push_back(0);
                 code_offsets.push_back(0);
@@ -296,9 +280,8 @@ void single_pass_assembly(string & in, string & out_o1, string & out_o2) {
             }
         }
 
-        // ---------------------------------------------------------
-        // Instrução comum → verificar número de operandos
-        // ---------------------------------------------------------
+        
+        // Instrução comum: verificar número de operandos
         else if (instruction_table.count(opcode)) {
             Instr instruction = instruction_table[opcode];
 
@@ -343,7 +326,6 @@ void single_pass_assembly(string & in, string & out_o1, string & out_o2) {
                 string symbol = operand;
                 
                 // Verifica se o próximo token é + ou - (offset)
-                // Ex: tokens = ["ADD", "X", "+", "2"] ou ["STORE", "Y", "-", "1"]
                 if (i + 2 < tokens.size() && (tokens[i+1] == "+" || tokens[i+1] == "-")) {
                     if (is_number(tokens[i+2])) {
                         // É um offset válido
@@ -382,7 +364,7 @@ void single_pass_assembly(string & in, string & out_o1, string & out_o2) {
                         }
                     }
                     
-                    // Se ainda não declarado → deixa pendente
+                    // Se ainda não declarado, deixa pendente
                     if (!symbol_table[symbol].def) {
                         add_error(line_number+1, "SEMÂNTICO", "Rótulo não declarado: " + symbol);
                         code.push_back(symbol_table[symbol].pending);
