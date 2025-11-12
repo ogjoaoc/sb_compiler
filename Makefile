@@ -25,4 +25,4 @@ debug: clean $(TARGET)
 
 # Clean all generated files including test outputs
 clean: clean
-	rm -f *.pre *.o1 *.o2
+	rm -f *.pre *.o1 *.o2 *.err

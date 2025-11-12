@@ -4,6 +4,7 @@
 # Object output files
 *.o1
 *.o2
+*.err
 
 # Executable
 compilador
